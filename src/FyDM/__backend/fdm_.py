@@ -46,6 +46,10 @@ class OneDimensionalFDM:
 
         return constants[diff_type]
 
+    @property
+    def pde_properties(self):
+        return self.x_range, self.dx, self.dt
+
     def d1_forward(self):
         return self.__factors('fwd') * bi_diagonal_matrix(self.n_steps,
                                                           self.wrap_boundaries,
@@ -76,13 +80,17 @@ def identity_matrix(n_steps: int):
 
 class OneDimensionalPDESolver:
 
-    def __init__(self, initial_condition, boundary_conditions, fdm_matrices, has_single_term=True,
-                 ic_values: NDArray = None):
+    def __init__(self, fdm_properties, initial_condition, boundary_conditions, fdm_matrices, has_single_term=True):
+        self.fdm_p = fdm_properties
         self.ic = initial_condition
         self.bc = boundary_conditions
         self.fdm = fdm_matrices
         self.hST = has_single_term
-        self.ic_values = ic_values
+        self.ic_values = None
+
+        if isinstance(initial_condition, Func):
+            n_steps = self.fdm_p[0][1] / self.fdm_p[1]
+            self.ic_values = np.linspace(*self.fdm_p[0], int(n_steps))
 
         self.n_steps = self.fdm[0].shape[1]
 
@@ -97,19 +105,25 @@ class OneDimensionalPDESolver:
         return initial_condition_matrix(self.n_steps, self.ic, self.ic_values)
 
     def __solver(self):
-        return self.lhs().inverse() * self.rhs()
+        return np.linalg.inv(self.lhs()) @ self.rhs()
 
     def solve(self, time_steps: int = 10):
-        lhs, solution = self.lhs().inverse(), [self.__solver()]
+        lhs = np.linalg.inv(self.lhs())
 
-        for i in range(time_steps):
-            temp_ = enforce_boundary_condition(solution[i], self.bc, i < 0)
-            solution.append(lhs * temp_)
+        solution: list = [self.rhs(), self.__solver()]
 
-        return solution
+        print(f"LHS matrix size = {lhs.shape}")
+        print(f"RHS matrix size = {solution[0].shape}")
+        print(f"Number of time-iterations = {time_steps}")
+
+        for i in range(1, time_steps):
+            solution.append(lhs @ solution[i])
+            enforce_boundary_condition(solution[i - 1], self.bc, i > 0)
+
+        return [i.transpose()[0] for i in solution]
 
 
-def initial_condition_matrix(n_steps: int, initial_condition: IFloatOrFList or Func, values: OptList = None):
+def initial_condition_matrix(n_steps: int, initial_condition: IFloatOrFList or Func, values=None):
     if isinstance(initial_condition, (int, float)):
         return [initial_condition] * n_steps
 
@@ -123,8 +137,9 @@ def initial_condition_matrix(n_steps: int, initial_condition: IFloatOrFList or F
 
 
 def enforce_boundary_condition(matrix, boundary_conditions: FList, overwrite: bool = False):
-    matrix[0][0] = boundary_conditions[0]
-    matrix[-1][0] = boundary_conditions[-1]
+    if overwrite:
+        matrix[0] = boundary_conditions[0]
+        matrix[-1] = boundary_conditions[-1]
 
     return matrix
 
@@ -148,21 +163,21 @@ def null_matrix(n_rows: int, n_cols: OptIFloat = None) -> NDArray:
 def bi_diagonal_matrix(n_steps, wrap_boundaries: bool = False, diff_type: str = 'fwd',
                        elements: OptList = None):
 
-    difference_indices = {'fwd': [-1, 0],
-                          'bkw': [1, 0],
+    difference_indices = {'fwd': [0, 1],
+                          'bkw': [0, -1],
                           'cnt': [-1, 1]}
 
-    difference_ = difference_indices[diff_type]
+    difference_n_steps = {'fwd': [n_steps, n_steps - 1],
+                          'bkw': [n_steps, n_steps - 1],
+                          'cnt': [n_steps - 1, n_steps - 1]}
+
+    difference_i = difference_indices[diff_type]
+    difference_n = difference_n_steps[diff_type]
 
     elements = elements if elements else [1, -1]
-    bi_diagonal_ = null_matrix(n_steps)
 
-    for row in range(bi_diagonal_.shape[0]):
-        for col in range(bi_diagonal_.shape[1]):
-            if row == col + difference_[0]:
-                bi_diagonal_[row][col] = elements[0]
-            if row == col + difference_[1]:
-                bi_diagonal_[row][col] = elements[1]
+    bi_diagonal_ = (np.diag([elements[1]] * difference_n[0], difference_i[0]) +
+                    np.diag([elements[0]] * difference_n[1], difference_i[1]))
 
     if wrap_boundaries:
         if diff_type == 'bkw':
