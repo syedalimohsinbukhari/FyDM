@@ -1,36 +1,57 @@
 """Created on Feb 23 09:06:48 2024"""
 
-from src.FyDM.__backend.fdm_ import OneDimensionalFDM, OneDimensionalPDESolver
+from .. import FList, Func, IFloat, IFloatOrFList
+from ..__backend.fdm_ import OneDimensionalFDM, OneDimensionalPDESolver
 
 
 # TODO: Add capability of handling forcing term
-class HeatEquation:
+# TODO: Add capability of solving HEq using explicit method
 
-    def __init__(self, x_range, delta_x, delta_t, diffusivity, initial_conditions, boundary_conditions, time_steps,
-                 wrap_boundaries: bool = False):
-        self.x_range = x_range
-        self.dx = delta_x
-        self.dt = delta_t
-        self.k = diffusivity
-        self.time_steps = time_steps
-        self.ic = initial_conditions
-        self.bc = boundary_conditions
-        self.wrap_boundaries = wrap_boundaries
+def heat_equation(x_range: FList, delta_x: IFloat, delta_t: IFloat, diffusivity: IFloat,
+                  initial_conditions: IFloatOrFList or Func, boundary_conditions: FList, time_steps: int,
+                  wrap_boundaries: bool = False, solution_method: str = 'implicit'):
+    """
+    Solves the one-dimensional heat equation using finite difference methods.
 
-    def pde_initializer(self):
-        return OneDimensionalFDM(self.x_range,
-                                 self.dx,
-                                 self.dt,
-                                 wrap_boundaries=self.wrap_boundaries)
 
-    def fdm(self):
-        pde_ = self.pde_initializer()
-        fdm_properties, fdm_matrices = pde_.pde_properties, [pde_.d1_backward(), -self.k * pde_.d2_central()]
+    Parameters
+    ----------
+    x_range:
+        A list containing the start and end points of the spatial domain.
+    delta_x:
+        Spatial step size.
+    delta_t:
+        Time step size.
+    diffusivity:
+        Diffusivity coefficient.
+    initial_conditions:
+        A list containing the initial temperature distribution.
+    boundary_conditions:
+        A list containing the boundary conditions (left and right).
+    time_steps:
+        Number of time steps to solve for.
+    wrap_boundaries:
+        Whether to wrap the boundaries (default is False).
+    solution_method:
+        Whether to solve the given heat equation via `explicit` or `implicit` method. Default is `implicit`.
 
-        return OneDimensionalPDESolver(fdm_properties,
-                                       self.ic,
-                                       self.bc,
-                                       fdm_matrices)
+    Returns
+    -------
+    NdArray:
+        Array containing the temperature distribution at each time step.
+    """
 
-    def solve(self):
-        return self.fdm().solve(self.time_steps)
+    pde_ = OneDimensionalFDM(x_range,
+                             delta_x,
+                             delta_t,
+                             wrap_boundaries=wrap_boundaries)
+
+    fdm_properties = pde_.pde_properties
+    fdm_matrices = [pde_.d1_backward(), -diffusivity * pde_.d2_central()]
+
+    fdm_ = OneDimensionalPDESolver(fdm_properties,
+                                   initial_conditions,
+                                   boundary_conditions,
+                                   fdm_matrices)
+
+    return fdm_.solve(time_steps)
