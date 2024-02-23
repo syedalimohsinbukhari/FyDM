@@ -1,0 +1,4 @@
+[build-system]
+requires = ["numpy~=1.26.0", "setuptools~=68.0.0"]
+
+build-backend = "setuptools.build_meta:__legacy__"
