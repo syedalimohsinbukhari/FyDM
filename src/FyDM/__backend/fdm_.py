@@ -1,9 +1,10 @@
 """Created on Feb 19 23:52:28 2024"""
 
 __all__ = ['OneDimensionalFDM', 'OneDimensionalPDESolver', 'bi_diagonal_matrix', 'enforce_boundary_condition',
-           'initial_condition_matrix', 'tri_diagonal_matrix']
+           'initial_condition_matrix', 'tri_diagonal_matrix', 'DirichletBCs']
 
 from math import floor
+from typing import Callable
 
 import numpy as np
 from numpy.typing import NDArray
@@ -11,15 +12,43 @@ from numpy.typing import NDArray
 from .. import FList, Func, IFloat, IFloatOrFList, N_DECIMAL, OptIFloat, OptList, TOLERANCE
 
 
+class DirichletBCs:
+
+    def __init__(self, alpha: IFloat = 0, beta: IFloat = 0):
+        self.alpha = alpha
+        self.beta = beta
+
+    def bcs(self):
+        return [self.alpha, self.beta]
+
+
 class OneDimensionalFDM:
 
-    def __init__(self, x_range, delta_x, delta_t, n_steps: OptIFloat = None, wrap_boundaries: bool = False,
-                 elements: OptList = None, tolerance: IFloat = TOLERANCE):
+    def __init__(self,
+                 x_range: FList,
+                 delta_x: IFloat,
+                 delta_t: IFloat,
+                 time_steps: IFloat = 1000,
+                 forcing_term: IFloat or Func = 0,
+                 wrap_boundaries: bool = False,
+                 n_steps: OptIFloat = None,
+                 elements: OptList = None,
+                 tolerance: IFloat = TOLERANCE):
+
         self.x_range = x_range
         self.dx = delta_x
         self.dt = delta_t
+        self.ts = time_steps
+        self.ft = forcing_term
         self.wrap_boundaries = wrap_boundaries
+        self.n_steps = n_steps
         self.elements = elements
+        self.tolerance = tolerance
+
+        self.__expand()
+
+    def __expand(self):
+        x_range, n_steps, delta_x, tolerance = self.x_range, self.n_steps, self.dx, self.tolerance
 
         # take the difference of provided x values
         x_diff = x_range[1] - x_range[0]
@@ -37,18 +66,43 @@ class OneDimensionalFDM:
                   f'{np.round(dx2, N_DECIMAL)}')
             self.dx = dx2
 
+    # @classmethod
+    # def from_characteristic_object(cls, characteristic_object):
+    #     _ = characteristic_object
+    #
+    #     x_range = _.rod_length
+    #     k = _.diffusivity
+    #     dx = 1 / _.x_size
+    #     dt = 1 / _.t_size
+    #     forcing_term = _.ft
+    #     wrap_boundaries = _.wrap_boundaries
+    #     n_steps = _.n_steps
+    #
+    #     return cls(x_range,
+    #                k,
+    #                dx,
+    #                dt,
+    #                _.t_size,
+    #                forcing_term,
+    #                wrap_boundaries,
+    #                n_steps)
+
     def __factors(self, diff_type):
         dx, dt = self.dx, self.dt
-        constants = {'fwd': dt / dx,
-                     'bkw': dt / dx,
+
+        dt_dx = dt / dx
+
+        constants = {'fwd': dt_dx,
+                     'bkw': dt_dx,
                      'cnt': dt / (2 * dx),
-                     'cnt2': dt / dx**2}
+                     'cnt2': dt / dx**2,
+                     'lw': [dt_dx, dt_dx**2]}
 
         return constants[diff_type]
 
     @property
     def pde_properties(self):
-        return self.x_range, self.dx, self.dt
+        return self.x_range, self.dx, self.dt, self.ts, isinstance(self.ft, Func)
 
     def d1_forward(self):
         return self.__factors('fwd') * bi_diagonal_matrix(self.n_steps,
@@ -73,6 +127,18 @@ class OneDimensionalFDM:
                                                             self.wrap_boundaries,
                                                             self.elements)
 
+    def lax_wendroff_advection(self):
+        return self.d1_central() + (self.d2_central() * self.dt)
+
+    def lax_wendroff_convection(self):
+        return self.d2_central() + (self.d2_central() * self.dt)
+
+    def forcing_term(self):
+        x_values = np.linspace(*self.x_range, self.n_steps)
+        t_values = np.arange(0, (self.dt * self.ts) + self.dt, self.dt)
+
+        return self.dt * self.ft(x_values, np.array([t_values]).transpose()) if isinstance(self.ft, Func) else self.ft
+
 
 def identity_matrix(n_steps: int):
     return np.eye(n_steps)
@@ -80,12 +146,19 @@ def identity_matrix(n_steps: int):
 
 class OneDimensionalPDESolver:
 
-    def __init__(self, fdm_properties, initial_condition, boundary_conditions, fdm_matrices, has_single_term=True):
+    def __init__(self,
+                 fdm_properties,
+                 fdm_matrices,
+                 initial_condition,
+                 boundary_conditions: OptList or Callable = None,
+                 has_single_term: bool = True):
+
         self.fdm_p = fdm_properties
-        self.ic = initial_condition
-        self.bc = boundary_conditions
         self.fdm = fdm_matrices
+        self.ic = initial_condition
+        self.bc = boundary_conditions.bcs() if isinstance(boundary_conditions, DirichletBCs) else boundary_conditions
         self.hST = has_single_term
+
         self.ic_values = None
 
         if isinstance(initial_condition, Func):
@@ -94,20 +167,25 @@ class OneDimensionalPDESolver:
 
         self.n_steps = self.fdm[0].shape[1]
 
+        if not self.fdm_p[-1]:
+            self.fdm.append(np.array([0] * self.fdm[0].shape[1]))
+
     def lhs(self):
         identity_ = identity_matrix(self.n_steps)
-        for matrix_ in self.fdm[1:]:
+        for matrix_ in self.fdm[1:-1]:
             identity_ += matrix_
 
         return identity_
 
     def rhs(self):
-        return initial_condition_matrix(self.n_steps, self.ic, self.ic_values)
+        temp_ = initial_condition_matrix(self.n_steps, self.ic, self.ic_values)
+        return temp_ - np.array([self.fdm[-1]]).transpose()
 
     def __solver(self):
         return np.linalg.inv(self.lhs()) @ self.rhs()
 
-    def solve(self, time_steps: int = 10):
+    def solve(self):
+        x_range, dx, dt, time_steps, _ = self.fdm_p
         lhs = np.linalg.inv(self.lhs())
 
         solution: list = [self.rhs(), self.__solver()]
@@ -115,55 +193,123 @@ class OneDimensionalPDESolver:
         print(f"LHS matrix size = {lhs.shape}")
         print(f"RHS matrix size = {solution[0].shape}")
         print(f"Number of time-iterations = {time_steps}")
+        print(f"dt = {dt} * {time_steps} -> {(time_steps * dt) - x_range[0]}s")
 
         for i in range(1, time_steps):
             solution.append(lhs @ solution[i])
-            enforce_boundary_condition(solution[i - 1], self.bc, i > 0)
+            if self.bc:
+                enforce_boundary_condition(solution[i - 1], self.bc)
 
-        return [i.transpose()[0] for i in solution]
+        return np.array([i.transpose()[0] for i in solution])
 
 
-def initial_condition_matrix(n_steps: int, initial_condition: IFloatOrFList or Func, values=None):
+def initial_condition_matrix(n_steps: int,
+                             initial_condition: IFloatOrFList or Func,
+                             values=None):
+    """
+    Generate a matrix representing initial conditions for a given number of time steps.
+
+    Parameters
+    ----------
+    n_steps:
+        The number of time steps.
+    initial_condition:
+        - The initial condition. If int or float, the matrix will be filled with this value.
+        - If a list is provided, the matrix will be created from the list.
+        - If Callable, the function will be called with 'values' as input to generate the matrix.
+    values:
+        Values to be used in the initial condition calculation if 'initial_condition' is a Callable.
+
+    Returns
+    -------
+    array:
+        A numpy array representing the initial condition matrix.
+    """
+
     if isinstance(initial_condition, (int, float)):
-        return [initial_condition] * n_steps
+        return np.full((n_steps, 1), initial_condition)
 
     elif isinstance(initial_condition, list):
-        return initial_condition
+        return np.array(initial_condition).reshape(-1, 1)
 
     elif isinstance(initial_condition, Func):
         if len(values) != n_steps:
             raise ValueError('The length of vector provided does not match with the number of steps provided')
         return np.array([initial_condition(values)]).transpose()
 
+    raise ValueError("Invalid initial_condition type")
 
-def enforce_boundary_condition(matrix, boundary_conditions: FList, overwrite: bool = False):
-    if overwrite:
-        matrix[0] = boundary_conditions[0]
-        matrix[-1] = boundary_conditions[-1]
+
+def enforce_boundary_condition(matrix: NDArray,
+                               boundary_conditions: FList) -> NDArray:
+    """
+    Enforce boundary conditions on a matrix.
+
+    Parameters
+    ----------
+    matrix:
+        The matrix to which boundary conditions should be applied.
+    boundary_conditions:
+        List of boundary conditions. The first and last elements are applied to the first and last rows of the matrix,
+        respectively.
+
+    Returns
+    -------
+    array
+        The matrix with boundary conditions applied.
+    """
+
+    matrix[0] = boundary_conditions[0]
+    matrix[-1] = boundary_conditions[-1]
 
     return matrix
 
 
-def null_matrix(n_rows: int, n_cols: OptIFloat = None) -> NDArray:
+def null_matrix(n_rows: int,
+                n_cols: OptIFloat = None) -> NDArray:
     """
     Returns a zero matrix for given `n_rows` and `n_cols`.
 
-    Args:
-        n_rows: Number of rows in the resultant matrix.
-        n_cols: Number of columns in the resultant matrix.
+    Parameters
+    ----------
+    n_rows:
+        Number of rows in the resultant matrix.
+    n_cols:
+        Number of columns in the resultant matrix.
 
-    Returns:
-        NDArray:
-            Null matrix.
+    Returns
+    -------
+    NDArray:
+        Null matrix.
+
     """
 
     return np.zeros((n_rows, n_rows if n_cols is None else n_cols))
 
 
-def bi_diagonal_matrix(n_steps, wrap_boundaries: bool = False, diff_type: str = 'fwd',
-                       elements: OptList = None):
+def bi_diagonal_matrix(n_steps, wrap_boundaries: bool = False, diff_type: str = 'fwd', elements: OptList = None):
+    """
+    Generate a bi-diagonal matrix for a given number of time steps.
 
-    difference_indices = {'fwd': [0, 1],
+    Parameters
+    ----------
+    n_steps:
+        The number of time steps.
+    wrap_boundaries:
+        If True, wrap the boundaries of the matrix. Default is False.
+    diff_type:
+        The type of difference scheme to use. Default is 'fwd'. Can be 'fwd' (forward), 'bkw' (backward), or
+        'cnt' (central).
+    elements:
+        The diagonal elements of the matrix. Should be a list of two integers. Default is [1, -1].
+
+    Returns
+    -------
+    array:
+        A bi-diagonal matrix representing the specified difference scheme and boundary conditions.
+    """
+
+    difference_indices = {'fwd': [0, +1],
                           'bkw': [0, -1],
                           'cnt': [-1, 1]}
 
