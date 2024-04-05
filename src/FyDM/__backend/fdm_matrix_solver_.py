@@ -23,13 +23,12 @@ class MatrixEq:
 
         for i in range(1, 101):
             sol.append(np.linalg.inv(g_matrix) @ (sol[i - 1] + ic2))
-            if i > 2:
-                enforce_boundary_condition(sol[i - 1], [0, 0])
+            enforce_boundary_condition(sol[i], [0, 0])
 
-            if i % 5 == 0:
-                plt.plot(x_, sol[i], label=f'dt = {i * self.lhs.dt}')
-
-        enforce_boundary_condition(sol[-1], [0, 0])
-
-        plt.legend(loc='best')
-        plt.show()
+        #     if i % 5 == 0:
+        #         plt.plot(x_, sol[i], label=f'dt = {i * self.lhs.dt}')
+        #
+        # # enforce_boundary_condition(sol[-1], [0, 0])
+        #
+        # plt.legend(loc='best')
+        # plt.show()

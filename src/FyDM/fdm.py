@@ -1,30 +1,103 @@
 """Created on Jan 11 13:59:35 2024"""
+import inspect
 
 import numpy as np
 
-from src.FyDM.__backend.fdm_ import DirichletBCs, OneDimensionalFDM, OneDimensionalPDESolver
+from src.FyDM.__backend.fdm_ import DirichletBCs, identity_matrix, OneDimensionalFDM, OneDimensionalPDESolver
 
-L, k = 2, 1
+L, c = 1, 1
 
-n_size, t_size = 500, 20
+n_size, t_size = 4, 4
 dx, dt = 1 / n_size, 1 / t_size
 
-x_ = np.linspace(0, L, n_size * L)
+x_ = np.linspace(0, L, (n_size * L) + 1)
 
 n = np.arange(1, (L * n_size) + 1, 1)
 
-pde_ = OneDimensionalFDM([0, L], dx,
+pde_ = OneDimensionalFDM([0, L],
+                         dx,
                          dt,
-                         t_size,
-                         forcing_term=lambda x, t: 1 - abs(x - 1))
+                         t_size)
 
 fdm_properties = pde_.pde_properties
 
+
+class D2IC:
+
+    def __init__(self, ic1=None, ic2=None):
+        self.IC1 = 0 if ic1 is None else ic1
+        self.IC2 = 0 if ic2 is None else ic2
+
+    def c1(self, x=None):
+        """
+
+        Parameters
+        ----------
+        x
+
+        Returns
+        -------
+
+        """
+        return self.IC1(x) if inspect.isfunction(self.IC1) else self.IC1
+
+    def c2(self, x=None):
+        """
+
+        Parameters
+        ----------
+        x
+
+        Returns
+        -------
+
+        """
+        return self.IC2(x) if inspect.isfunction(self.IC2) else self.IC2
+
+    def __list(self):
+        return [self.IC1, self.IC2]
+
+
 solver_ = OneDimensionalPDESolver(fdm_properties,
-                                  [pde_.d1_backward(), -k * pde_.lax_wendroff_convection(), -1 * pde_.forcing_term()],
-                                  lambda x: 2 * x - x ** 2,
+                                  [pde_.d2_central(), -c**2 * pde_.d2_central()],
+                                  D2IC(lambda x: x, 0),
                                   DirichletBCs())
+
 solution_ = solver_.solve()
+
+print(solution_)
+
+m = [
+    [4, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [-1, 4, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, -1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [-2, 0, 0, 4, -1, 0, 0, 0, 0, 0, 0, 0],
+    [0, -2, 0, -1, 4, -1, 0, 0, 0, 0, 0, 0],
+    [0, 0, -2, 0, -1, 4, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, -2, 0, 0, 4, -1, 0, 0, 0, 0],
+    [0, 0, 0, 0, -2, 0, -1, 4, -1, 0, 0, 0],
+    [0, 0, 0, 0, 0, -2, 0, -1, 4, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, -2, 0, 0, 4, -1, 0],
+    [0, 0, 0, 0, 0, 0, 0, -2, 0, -1, 4, -1],
+    [0, 0, 0, 0, 0, 0, 0, 0, -2, 0, 4, -1]
+]
+
+b = [[1 / 2, 1, 3 / 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
+
+m = np.matrix(m)
+b = np.matrix(b).transpose()
+
+solve = np.linalg.inv(m) @ b
+
+# print(np.reshape(solve, (4, 3)))
+
+cp = pde_.d2_central() * dt
+x1 = 2 * identity_matrix(5) - cp
+# print(x1)
+
+x2 = np.array([x_]).transpose()
+
+print(np.linalg.inv(x1) @ x2)
 
 # def exact_solution(n, x_, k, L, i_dt):
 #     t_n = (16 * (1 - (-1)**n)) / (n * np.pi)**3

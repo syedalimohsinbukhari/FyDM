@@ -34,7 +34,6 @@ class OneDimensionalFDM:
                  n_steps: OptIFloat = None,
                  elements: OptList = None,
                  tolerance: IFloat = TOLERANCE):
-
         self.x_range = x_range
         self.dx = delta_x
         self.dt = delta_t
@@ -94,8 +93,8 @@ class OneDimensionalFDM:
 
         constants = {'fwd': dt_dx,
                      'bkw': dt_dx,
-                     'cnt': dt / (2 * dx),
-                     'cnt2': dt / dx**2,
+                     'cnt': 0.5 * dt_dx,
+                     'cnt2': dx**-1 * dt_dx,
                      'lw': [dt_dx, dt_dx**2]}
 
         return constants[diff_type]
@@ -160,10 +159,17 @@ class OneDimensionalPDESolver:
         self.hST = has_single_term
 
         self.ic_values = None
+        self.flag = 0
 
         if isinstance(initial_condition, Func):
             n_steps = self.fdm_p[0][1] / self.fdm_p[1]
-            self.ic_values = np.linspace(*self.fdm_p[0], int(n_steps))
+            self.ic_values = np.linspace(*self.fdm_p[0], int(n_steps) + 1)
+
+        try:
+            if self.ic._D2IC__list():
+                self.flag = 1
+        except AttributeError:
+            pass
 
         self.n_steps = self.fdm[0].shape[1]
 
@@ -172,23 +178,42 @@ class OneDimensionalPDESolver:
 
     def lhs(self):
         identity_ = identity_matrix(self.n_steps)
+        if self.flag:
+            identity_ *= 2
+
         for matrix_ in self.fdm[1:-1]:
+            if self.flag:
+                matrix_ *= self.fdm_p[2]
             identity_ += matrix_
 
         return identity_
 
     def rhs(self):
-        temp_ = initial_condition_matrix(self.n_steps, self.ic, self.ic_values)
+        if self.flag == 0:
+            temp_ = initial_condition_matrix(self.n_steps,
+                                             self.ic,
+                                             self.ic_values)
+
+            temp_ += boundary_condition_matrix(self.n_steps,
+                                               self.bc)
+        else:
+            temp_ = initial_condition_matrix(self.n_steps,
+                                             self.ic.c1,
+                                             self.ic_values)
+
         return temp_ - np.array([self.fdm[-1]]).transpose()
 
-    def __solver(self):
-        return np.linalg.inv(self.lhs()) @ self.rhs()
+    @staticmethod
+    def __solver(lhs, rhs):
+        print(lhs)
+        return np.linalg.inv(lhs) @ rhs
 
     def solve(self):
         x_range, dx, dt, time_steps, _ = self.fdm_p
-        lhs = np.linalg.inv(self.lhs())
+        lhs = self.lhs()
+        solution: list = [self.rhs(), self.__solver(lhs, self.rhs())]
 
-        solution: list = [self.rhs(), self.__solver()]
+        lhs = np.linalg.inv(self.lhs())
 
         print(f"LHS matrix size = {lhs.shape}")
         print(f"RHS matrix size = {solution[0].shape}")
@@ -196,9 +221,11 @@ class OneDimensionalPDESolver:
         print(f"dt = {dt} * {time_steps} -> {(time_steps * dt) - x_range[0]}s")
 
         for i in range(1, time_steps):
+            # if i > 0:
+            #     enforce_boundary_condition(solution[i], self.bc)
             solution.append(lhs @ solution[i])
-            if self.bc:
-                enforce_boundary_condition(solution[i - 1], self.bc)
+
+        # enforce_boundary_condition(solution[-1], self.bc)
 
         return np.array([i.transpose()[0] for i in solution])
 
@@ -233,11 +260,20 @@ def initial_condition_matrix(n_steps: int,
         return np.array(initial_condition).reshape(-1, 1)
 
     elif isinstance(initial_condition, Func):
-        if len(values) != n_steps:
+        val_ = values[1:-1]
+        if len(val_) != n_steps:
             raise ValueError('The length of vector provided does not match with the number of steps provided')
-        return np.array([initial_condition(values)]).transpose()
+        return np.array([initial_condition(val_)]).transpose()
 
     raise ValueError("Invalid initial_condition type")
+
+
+def boundary_condition_matrix(n_steps: int, boundary_conditions):
+    null_ = null_matrix(n_steps, 1)
+    null_[0] = boundary_conditions[0]
+    null_[-1] = boundary_conditions[-1]
+
+    return null_
 
 
 def enforce_boundary_condition(matrix: NDArray,
@@ -309,6 +345,8 @@ def bi_diagonal_matrix(n_steps, wrap_boundaries: bool = False, diff_type: str = 
         A bi-diagonal matrix representing the specified difference scheme and boundary conditions.
     """
 
+    n_steps -= 1
+
     difference_indices = {'fwd': [0, +1],
                           'bkw': [0, -1],
                           'cnt': [-1, 1]}
@@ -339,7 +377,7 @@ def bi_diagonal_matrix(n_steps, wrap_boundaries: bool = False, diff_type: str = 
 
 def tri_diagonal_matrix(n_steps: int, wrap_boundaries: bool = False, elements: OptList = None):
     elements = elements if elements else [1, -2, 1]
-    tri_diagonal_ = null_matrix(n_steps)
+    tri_diagonal_ = null_matrix(n_steps - 1)
 
     for row in range(tri_diagonal_.shape[1]):
         for col in range(tri_diagonal_.shape[0]):
