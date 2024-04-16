@@ -194,8 +194,8 @@ class OneDimensionalPDESolver:
                                              self.ic,
                                              self.ic_values)
 
-            temp_ += boundary_condition_matrix(self.n_steps,
-                                               self.bc)
+            # temp_ += boundary_condition_matrix(self.n_steps,
+            #                                    self.bc)
         else:
             temp_ = initial_condition_matrix(self.n_steps,
                                              self.ic.c1,
@@ -203,17 +203,10 @@ class OneDimensionalPDESolver:
 
         return temp_ - np.array([self.fdm[-1]]).transpose()
 
-    @staticmethod
-    def __solver(lhs, rhs):
-        print(lhs)
-        return np.linalg.inv(lhs) @ rhs
-
     def solve(self):
         x_range, dx, dt, time_steps, _ = self.fdm_p
-        lhs = self.lhs()
-        solution: list = [self.rhs(), self.__solver(lhs, self.rhs())]
-
         lhs = np.linalg.inv(self.lhs())
+        solution: list = [self.rhs(), lhs @ self.rhs()]
 
         print(f"LHS matrix size = {lhs.shape}")
         print(f"RHS matrix size = {solution[0].shape}")
@@ -221,11 +214,7 @@ class OneDimensionalPDESolver:
         print(f"dt = {dt} * {time_steps} -> {(time_steps * dt) - x_range[0]}s")
 
         for i in range(1, time_steps):
-            # if i > 0:
-            #     enforce_boundary_condition(solution[i], self.bc)
             solution.append(lhs @ solution[i])
-
-        # enforce_boundary_condition(solution[-1], self.bc)
 
         return np.array([i.transpose()[0] for i in solution])
 
@@ -270,8 +259,7 @@ def initial_condition_matrix(n_steps: int,
 
 def boundary_condition_matrix(n_steps: int, boundary_conditions):
     null_ = null_matrix(n_steps, 1)
-    null_[0] = boundary_conditions[0]
-    null_[-1] = boundary_conditions[-1]
+    null_[[0, -1]] = boundary_conditions
 
     return null_
 
@@ -347,49 +335,37 @@ def bi_diagonal_matrix(n_steps, wrap_boundaries: bool = False, diff_type: str = 
 
     n_steps -= 1
 
-    difference_indices = {'fwd': [0, +1],
-                          'bkw': [0, -1],
-                          'cnt': [-1, 1]}
-
-    difference_n_steps = {'fwd': [n_steps, n_steps - 1],
-                          'bkw': [n_steps, n_steps - 1],
-                          'cnt': [n_steps - 1, n_steps - 1]}
-
-    difference_i = difference_indices[diff_type]
-    difference_n = difference_n_steps[diff_type]
-
     elements = elements if elements else [1, -1]
 
-    bi_diagonal_ = (np.diag([elements[1]] * difference_n[0], difference_i[0]) +
-                    np.diag([elements[0]] * difference_n[1], difference_i[1]))
+    main_diagonal = np.full(n_steps, elements[1])
+    upper_diagonal = np.full(n_steps - 1, elements[0])
+    lower_diagonal = np.full(n_steps - 1, elements[0])
+
+    if diff_type == 'bkw':
+        matrix = np.diag(main_diagonal) + np.diag(upper_diagonal, k=1)
+    elif diff_type == 'fwd':
+        matrix = np.diag(main_diagonal) + np.diag(lower_diagonal, k=-1)
+    else:
+        matrix = np.diag(main_diagonal) + np.diag(upper_diagonal, k=1) + np.diag(lower_diagonal, k=-1)
 
     if wrap_boundaries:
-        if diff_type == 'bkw':
-            bi_diagonal_[0][-1] = elements[0]
-        elif diff_type == 'fwd':
-            bi_diagonal_[-1][0] = elements[0]
-        else:
-            bi_diagonal_[0][-1] = elements[1]
-            bi_diagonal_[-1][0] = elements[0]
+        matrix[0, -1] = elements[0]
+        matrix[-1, 0] = elements[0]
 
-    return bi_diagonal_
+    return matrix
 
 
 def tri_diagonal_matrix(n_steps: int, wrap_boundaries: bool = False, elements: OptList = None):
+    n_steps -= 1
     elements = elements if elements else [1, -2, 1]
-    tri_diagonal_ = null_matrix(n_steps - 1)
+    diag_main = np.full(n_steps, elements[1])
+    diag_upper = np.full(n_steps - 1, elements[0])
+    diag_lower = np.full(n_steps - 1, elements[2])
 
-    for row in range(tri_diagonal_.shape[1]):
-        for col in range(tri_diagonal_.shape[0]):
-            if row == col + 1:
-                tri_diagonal_[row][col] = elements[0]
-            if row == col:
-                tri_diagonal_[row][col] = elements[1]
-            if row == col - 1:
-                tri_diagonal_[row][col] = elements[2]
+    tri_diagonal_ = np.diag(diag_main) + np.diag(diag_upper, k=1) + np.diag(diag_lower, k=-1)
 
     if wrap_boundaries:
-        tri_diagonal_[0][-1] = elements[-1]
-        tri_diagonal_[-1][0] = elements[-1]
+        tri_diagonal_[0, -1] = elements[-1]
+        tri_diagonal_[-1, 0] = elements[-1]
 
     return tri_diagonal_

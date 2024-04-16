@@ -97,7 +97,7 @@ x1 = 2 * identity_matrix(5) - cp
 
 x2 = np.array([x_]).transpose()
 
-print(np.linalg.inv(x1) @ x2)
+# print(np.linalg.inv(x1) @ x2)
 
 # def exact_solution(n, x_, k, L, i_dt):
 #     t_n = (16 * (1 - (-1)**n)) / (n * np.pi)**3

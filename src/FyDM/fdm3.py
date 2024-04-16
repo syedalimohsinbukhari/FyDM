@@ -1,7 +1,7 @@
 """Created on Apr 06 00:30:51 2024"""
 import numpy as np
 
-from src.FyDM.__backend.fdm_ import OneDimensionalFDM, OneDimensionalPDESolver
+from src.FyDM.__backend.fdm_ import DirichletBCs, OneDimensionalFDM, OneDimensionalPDESolver
 
 L, c = 1, 1
 
@@ -20,10 +20,36 @@ pde_ = OneDimensionalFDM([0, L],
 solver_ = OneDimensionalPDESolver(pde_.pde_properties,
                                   [pde_.d1_backward(), -c * pde_.d2_central()],
                                   lambda x: x,
-                                  [0, 0])
+                                  DirichletBCs())
 
-print(solver_.solve())
+p = solver_.solve()
 
+m = [
+    [9, -4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [-4, 9, -4, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, -4, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [-1, 0, 0, 9, -4, 0, 0, 0, 0, 0, 0, 0],
+    [0, -1, 0, -4, 9, -4, 0, 0, 0, 0, 0, 0],
+    [0, 0, -1, 0, -4, 9, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, -1, 0, 0, 9, -4, 0, 0, 0, 0],
+    [0, 0, 0, 0, -1, 0, -4, 9, -4, 0, 0, 0],
+    [0, 0, 0, 0, 0, -1, 0, -4, 9, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, -1, 0, 0, 9, -4, 0],
+    [0, 0, 0, 0, 0, 0, 0, -1, 0, -4, 9, -4],
+    [0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 9, -4]
+]
+
+b = [[0.25, 0.5, 0.75, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
+
+m = np.matrix(m)
+b = np.matrix(b).transpose()
+
+solve = np.linalg.inv(m) @ b
+
+q = np.reshape(solve, (4, 3))
+
+print(q)
+print(p[1:])
 # print(solver_.rhs())
 
 # solution_ = solver_.solve()
