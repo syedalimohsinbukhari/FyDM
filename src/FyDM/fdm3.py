@@ -48,10 +48,17 @@ solve = np.linalg.inv(m) @ b
 
 q = np.reshape(solve, (4, 3))
 
-print(q)
-print(p[1:])
-# print(solver_.rhs())
+m1 = [
+    [1, 0, 0, 0, 0],
+    [-4, 9, -4, 0, 0],
+    [0, -4, 9, -4, 0],
+    [0, 0, -4, 9, -4],
+    [0, 0, 0, 0, 1]
+]
 
-# solution_ = solver_.solve()
-#
-# print(solution_)
+m = np.matrix(m)
+solve = np.linalg.inv(m) @ b
+
+print(q)
+
+print(np.reshape(solve, (4, 3)))
