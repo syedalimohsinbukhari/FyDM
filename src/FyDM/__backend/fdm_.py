@@ -205,15 +205,25 @@ class OneDimensionalPDESolver:
 
     def solve(self):
         x_range, dx, dt, time_steps, _ = self.fdm_p
-        lhs = np.linalg.inv(self.lhs())
-        solution: list = [self.rhs(), lhs @ self.rhs()]
+
+        p = self.lhs()
+        p[0][0] = 1
+        p[0][1:] = [0] * (len(p[0]) - 1)
+        p[-1][0:-1] = [0] * (len(p[0]) - 1)
+        p[-1][-1] = 1
+
+        # print(p)
+
+        lhs = np.linalg.inv(p)
+        solution: list = [self.rhs()]
 
         print(f"LHS matrix size = {lhs.shape}")
         print(f"RHS matrix size = {solution[0].shape}")
         print(f"Number of time-iterations = {time_steps}")
         print(f"dt = {dt} * {time_steps} -> {(time_steps * dt) - x_range[0]}s")
 
-        for i in range(1, time_steps):
+        for i in range(0, time_steps):
+            enforce_boundary_condition(solution[i], self.bc)
             solution.append(lhs @ solution[i])
 
         return np.array([i.transpose()[0] for i in solution])
@@ -249,10 +259,10 @@ def initial_condition_matrix(n_steps: int,
         return np.array(initial_condition).reshape(-1, 1)
 
     elif isinstance(initial_condition, Func):
-        val_ = values[1:-1]
-        if len(val_) != n_steps:
-            raise ValueError('The length of vector provided does not match with the number of steps provided')
-        return np.array([initial_condition(val_)]).transpose()
+        # val_ = values[1:-1]
+        # if len(val_) != n_steps:
+        #     raise ValueError('The length of vector provided does not match with the number of steps provided')
+        return np.array([initial_condition(values)]).transpose()
 
     raise ValueError("Invalid initial_condition type")
 
@@ -333,7 +343,7 @@ def bi_diagonal_matrix(n_steps, wrap_boundaries: bool = False, diff_type: str = 
         A bi-diagonal matrix representing the specified difference scheme and boundary conditions.
     """
 
-    n_steps -= 1
+    n_steps += 1
 
     elements = elements if elements else [1, -1]
 
@@ -356,7 +366,7 @@ def bi_diagonal_matrix(n_steps, wrap_boundaries: bool = False, diff_type: str = 
 
 
 def tri_diagonal_matrix(n_steps: int, wrap_boundaries: bool = False, elements: OptList = None):
-    n_steps -= 1
+    n_steps += 1
     elements = elements if elements else [1, -2, 1]
     diag_main = np.full(n_steps, elements[1])
     diag_upper = np.full(n_steps - 1, elements[0])

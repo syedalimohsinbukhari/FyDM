@@ -56,9 +56,10 @@ m1 = [
     [0, 0, 0, 0, 1]
 ]
 
-m = np.matrix(m)
-solve = np.linalg.inv(m) @ b
+b1 = np.array([[0, 1 / 4, 1 / 2, 3 / 4, 1]])
 
-print(q)
+m = np.matrix(m1)
+solve = np.linalg.inv(m) @ b1.transpose()
 
-print(np.reshape(solve, (4, 3)))
+solve = np.linalg.inv(m) @ solve
+print(solve)
