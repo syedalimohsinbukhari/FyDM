@@ -7,6 +7,7 @@ from math import floor
 from typing import Callable
 
 import numpy as np
+import yaml
 from numpy.typing import NDArray
 
 from .. import FList, Func, IFloat, IFloatOrFList, N_DECIMAL, OptIFloat, OptList, TOLERANCE
@@ -65,26 +66,18 @@ class OneDimensionalFDM:
                   f'{np.round(dx2, N_DECIMAL)}')
             self.dx = dx2
 
-    # @classmethod
-    # def from_characteristic_object(cls, characteristic_object):
-    #     _ = characteristic_object
-    #
-    #     x_range = _.rod_length
-    #     k = _.diffusivity
-    #     dx = 1 / _.x_size
-    #     dt = 1 / _.t_size
-    #     forcing_term = _.ft
-    #     wrap_boundaries = _.wrap_boundaries
-    #     n_steps = _.n_steps
-    #
-    #     return cls(x_range,
-    #                k,
-    #                dx,
-    #                dt,
-    #                _.t_size,
-    #                forcing_term,
-    #                wrap_boundaries,
-    #                n_steps)
+    @classmethod
+    def from_yaml(cls, yaml_file):
+        with open(yaml_file, 'r') as f:
+            data = yaml.safe_load(f)
+
+        return cls(data['rod_length'],
+                   data['dx'],
+                   data['dt'],
+                   data.get('time_steps', 1 / data['dt']),
+                   data.get('ft', 0),
+                   data.get('wrap_boundaries', False),
+                   data.get('n_steps', None))
 
     def __factors(self, diff_type):
         dx, dt = self.dx, self.dt
