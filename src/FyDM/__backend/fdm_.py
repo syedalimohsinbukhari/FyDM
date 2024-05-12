@@ -7,7 +7,6 @@ from math import floor
 from typing import Callable
 
 import numpy as np
-import yaml
 from numpy.typing import NDArray
 
 from .. import FList, Func, IFloat, IFloatOrFList, N_DECIMAL, OptIFloat, OptList, TOLERANCE
@@ -29,7 +28,7 @@ class OneDimensionalFDM:
                  x_range: FList,
                  delta_x: IFloat,
                  delta_t: IFloat,
-                 time_steps: IFloat = 1000,
+                 time_steps: IFloat,
                  forcing_term: IFloat or Func = 0,
                  wrap_boundaries: bool = False,
                  n_steps: OptIFloat = None,
@@ -59,6 +58,8 @@ class OneDimensionalFDM:
         # Calculate the actual step size based on the calculated number of steps
         dx2 = x_diff / self.n_steps
 
+        self.n_steps += 1
+
         # Adjust the step size if it differs from the specified step size
         if abs(delta_x - dx2) > tolerance:
             print('The recalculated `delta_x` from `n_steps` does not match the provided value.\n'
@@ -66,20 +67,7 @@ class OneDimensionalFDM:
                   f'{np.round(dx2, N_DECIMAL)}')
             self.dx = dx2
 
-    @classmethod
-    def from_yaml(cls, yaml_file):
-        with open(yaml_file, 'r') as f:
-            data = yaml.safe_load(f)
-
-        return cls(data['rod_length'],
-                   data['dx'],
-                   data['dt'],
-                   data.get('time_steps', 1 / data['dt']),
-                   data.get('ft', 0),
-                   data.get('wrap_boundaries', False),
-                   data.get('n_steps', None))
-
-    def __factors(self, diff_type):
+    def _factors(self, diff_type):
         dx, dt = self.dx, self.dt
 
         dt_dx = dt / dx
@@ -88,7 +76,8 @@ class OneDimensionalFDM:
                      'bkw': dt_dx,
                      'cnt': 0.5 * dt_dx,
                      'cnt2': dx**-1 * dt_dx,
-                     'lw': [dt_dx, dt_dx**2]}
+                     'lw': [dt_dx, dt_dx**2],
+                     'cn': 0.5 * dx**-1 * dt_dx}
 
         return constants[diff_type]
 
@@ -97,27 +86,32 @@ class OneDimensionalFDM:
         return self.x_range, self.dx, self.dt, self.ts, isinstance(self.ft, Func)
 
     def d1_forward(self):
-        return self.__factors('fwd') * bi_diagonal_matrix(self.n_steps,
-                                                          self.wrap_boundaries,
-                                                          'fwd',
-                                                          self.elements)
+        return self._factors('fwd') * bi_diagonal_matrix(self.n_steps,
+                                                         self.wrap_boundaries,
+                                                         'fwd',
+                                                         self.elements)
 
     def d1_backward(self):
-        return self.__factors('bkw') * bi_diagonal_matrix(self.n_steps,
-                                                          self.wrap_boundaries,
-                                                          'bkw',
-                                                          self.elements)
+        return self._factors('bkw') * bi_diagonal_matrix(self.n_steps,
+                                                         self.wrap_boundaries,
+                                                         'bkw',
+                                                         self.elements)
 
     def d1_central(self):
-        return self.__factors('cnt') * bi_diagonal_matrix(self.n_steps,
-                                                          self.wrap_boundaries,
-                                                          'cnt',
-                                                          self.elements)
+        return self._factors('cnt') * bi_diagonal_matrix(self.n_steps,
+                                                         self.wrap_boundaries,
+                                                         'cnt',
+                                                         self.elements)
 
     def d2_central(self):
-        return self.__factors('cnt2') * tri_diagonal_matrix(self.n_steps,
-                                                            self.wrap_boundaries,
-                                                            self.elements)
+        return self._factors('cnt2') * tri_diagonal_matrix(self.n_steps,
+                                                           self.wrap_boundaries,
+                                                           self.elements)
+
+    def d2_cn(self):
+        return self._factors('cn') * tri_diagonal_matrix(self.n_steps,
+                                                         self.wrap_boundaries,
+                                                         self.elements)
 
     def lax_wendroff_advection(self):
         return self.d1_central() + (self.d2_central() * self.dt)
@@ -129,7 +123,15 @@ class OneDimensionalFDM:
         x_values = np.linspace(*self.x_range, self.n_steps)
         t_values = np.arange(0, (self.dt * self.ts) + self.dt, self.dt)
 
-        return self.dt * self.ft(x_values, np.array([t_values]).transpose()) if isinstance(self.ft, Func) else self.ft
+        mat_ = self.ft(x_values, np.array([t_values]).transpose())
+        if mat_.ndim == 1:
+            new_shape = self.n_steps
+            mat_ = self.dt * np.array([mat_]).transpose()
+            mat_ = np.reshape(mat_.tolist() * new_shape, (new_shape, new_shape))
+        else:
+            mat_ *= self.dt
+
+        return mat_ if isinstance(self.ft, Func) else self.ft
 
 
 def identity_matrix(n_steps: int):
@@ -152,49 +154,39 @@ class OneDimensionalPDESolver:
         self.hST = has_single_term
 
         self.ic_values = None
-        self.flag = 0
+        # self.flag = 0
 
         if isinstance(initial_condition, Func):
             n_steps = self.fdm_p[0][1] / self.fdm_p[1]
             self.ic_values = np.linspace(*self.fdm_p[0], int(n_steps) + 1)
 
-        try:
-            if self.ic._D2IC__list():
-                self.flag = 1
-        except AttributeError:
-            pass
+        # try:
+        #     if self.ic._D2IC__list():
+        #         self.flag = 1
+        # except AttributeError:
+        #     pass
 
         self.n_steps = self.fdm[0].shape[1]
 
         if not self.fdm_p[-1]:
-            self.fdm.append(np.array([0] * self.fdm[0].shape[1]))
+            self.fdm.append(null_matrix(self.fdm[0].shape[1]))
 
     def lhs(self):
         identity_ = identity_matrix(self.n_steps)
-        if self.flag:
-            identity_ *= 2
+        # if self.flag:
+        #     identity_ *= 2
 
         for matrix_ in self.fdm[1:-1]:
-            if self.flag:
-                matrix_ *= self.fdm_p[2]
+            # if self.flag:
+            #     matrix_ *= self.fdm_p[2]
             identity_ += matrix_
 
         return identity_
 
     def rhs(self):
-        if self.flag == 0:
-            temp_ = initial_condition_matrix(self.n_steps,
-                                             self.ic,
-                                             self.ic_values)
-
-            # temp_ += boundary_condition_matrix(self.n_steps,
-            #                                    self.bc)
-        else:
-            temp_ = initial_condition_matrix(self.n_steps,
-                                             self.ic.c1,
-                                             self.ic_values)
-
-        return temp_ - np.array([self.fdm[-1]]).transpose()
+        return initial_condition_matrix(self.n_steps,
+                                        self.ic,
+                                        self.ic_values)
 
     def solve(self):
         x_range, dx, dt, time_steps, _ = self.fdm_p
@@ -205,8 +197,6 @@ class OneDimensionalPDESolver:
         p[-1][0:-1] = [0] * (len(p[0]) - 1)
         p[-1][-1] = 1
 
-        # print(p)
-
         lhs = np.linalg.inv(p)
         solution: list = [self.rhs()]
 
@@ -215,9 +205,12 @@ class OneDimensionalPDESolver:
         print(f"Number of time-iterations = {time_steps}")
         print(f"dt = {dt} * {time_steps} -> {(time_steps * dt) - x_range[0]}s")
 
-        for i in range(0, time_steps):
+        for i in range(0, int(time_steps)):
+            forcing_term = self.fdm[-1][:, i:i + 1]
             enforce_boundary_condition(solution[i], self.bc)
-            solution.append(lhs @ solution[i])
+            solution.append(lhs @ (solution[i] + forcing_term))
+
+        enforce_boundary_condition(solution[-1], self.bc)
 
         return np.array([i.transpose()[0] for i in solution])
 
@@ -336,7 +329,7 @@ def bi_diagonal_matrix(n_steps, wrap_boundaries: bool = False, diff_type: str = 
         A bi-diagonal matrix representing the specified difference scheme and boundary conditions.
     """
 
-    n_steps += 1
+    # n_steps += 1
 
     elements = elements if elements else [1, -1]
 
@@ -359,7 +352,7 @@ def bi_diagonal_matrix(n_steps, wrap_boundaries: bool = False, diff_type: str = 
 
 
 def tri_diagonal_matrix(n_steps: int, wrap_boundaries: bool = False, elements: OptList = None):
-    n_steps += 1
+    # n_steps += 1
     elements = elements if elements else [1, -2, 1]
     diag_main = np.full(n_steps, elements[1])
     diag_upper = np.full(n_steps - 1, elements[0])
