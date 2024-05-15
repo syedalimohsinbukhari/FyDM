@@ -1,7 +1,7 @@
 """Created on Feb 19 23:52:28 2024"""
 
 __all__ = ['OneDimensionalFDM', 'OneDimensionalPDESolver', 'bi_diagonal_matrix', 'enforce_boundary_condition',
-           'initial_condition_matrix', 'tri_diagonal_matrix', 'DirichletBCs']
+           'initial_condition_matrix', 'tri_diagonal_matrix', 'DirichletBCs', 'identity_matrix']
 
 from math import floor
 from typing import Callable
@@ -23,6 +23,27 @@ class DirichletBCs:
 
 
 class OneDimensionalFDM:
+    """A class for performing finite difference method computations on a 1D grid.
+
+    Parameters
+    ----------
+    x_range : FList
+        Range of the spatial grid.
+    delta_x : float
+        Spatial step size.
+    delta_t : float
+        Temporal step size.
+    time_steps : int
+        Number of time steps.
+    forcing_term : Union[float, Callable[[np.ndarray, np.ndarray], np.ndarray]], optional
+        Forcing term for the PDE, either a constant or a function of x and t.
+    wrap_boundaries : bool, optional
+        Whether to wrap boundaries (periodic boundaries).
+    n_steps : int, optional
+        Number of spatial steps.
+    tolerance : float, optional
+        Tolerance for comparing float values.
+    """
 
     def __init__(self,
                  x_range: FList,
@@ -68,6 +89,20 @@ class OneDimensionalFDM:
             self.dx = dx2
 
     def _factors(self, diff_type):
+        """
+        Calculate the coefficients for different difference schemes.
+
+        Parameters
+        ----------
+        diff_type : str
+            Type of difference scheme ('fwd', 'bkw', 'cnt', 'cnt2', 'lw', 'cn').
+
+        Returns
+        -------
+        float or List[float]
+            Coefficient(s) for the specified difference scheme.
+        """
+
         dx, dt = self.dx, self.dt
 
         dt_dx = dt / dx
@@ -83,43 +118,123 @@ class OneDimensionalFDM:
 
     @property
     def pde_properties(self):
+        """
+        Get the properties of the PDE.
+
+        Returns
+        -------
+        Tuple
+            x_range, dx, dt, ts, True if forcing term is a function, else False.
+        """
+
         return self.x_range, self.dx, self.dt, self.ts, isinstance(self.ft, Func)
 
     def d1_forward(self):
+        """
+        Compute the forward difference operator.
+
+        Returns
+        -------
+        np.ndarray
+            The forward difference operator matrix.
+        """
+
         return self._factors('fwd') * bi_diagonal_matrix(self.n_steps,
                                                          self.wrap_boundaries,
                                                          'fwd',
                                                          self.elements)
 
     def d1_backward(self):
+        """
+        Compute the backward difference operator.
+
+        Returns
+        -------
+        np.ndarray
+            The backward difference operator matrix.
+        """
+
         return self._factors('bkw') * bi_diagonal_matrix(self.n_steps,
                                                          self.wrap_boundaries,
                                                          'bkw',
                                                          self.elements)
 
     def d1_central(self):
+        """
+         Compute the central difference operator.
+
+         Returns
+         -------
+         np.ndarray
+             The central difference operator matrix.
+         """
+
         return self._factors('cnt') * bi_diagonal_matrix(self.n_steps,
                                                          self.wrap_boundaries,
                                                          'cnt',
                                                          self.elements)
 
     def d2_central(self):
+        """
+        Compute the central difference operator for the second derivative.
+
+        Returns
+        -------
+        np.ndarray
+            The central difference operator matrix for the second derivative.
+        """
         return self._factors('cnt2') * tri_diagonal_matrix(self.n_steps,
                                                            self.wrap_boundaries,
                                                            self.elements)
 
     def d2_cn(self):
+        """
+        Compute the Crank-Nicolson difference operator for the second derivative.
+
+        Returns
+        -------
+        np.ndarray
+            The Crank-Nicolson difference operator matrix for the second derivative.
+        """
+
         return self._factors('cn') * tri_diagonal_matrix(self.n_steps,
                                                          self.wrap_boundaries,
                                                          self.elements)
 
     def lax_wendroff_advection(self):
+        """
+        Compute the Lax-Wendroff advection operator.
+
+        Returns
+        -------
+        np.ndarray
+            The Lax-Wendroff advection operator matrix.
+        """
+
         return self.d1_central() + (self.d2_central() * self.dt)
 
     def lax_wendroff_convection(self):
+        """
+        Compute the Lax-Wendroff convection operator.
+
+        Returns
+        -------
+        np.ndarray
+            The Lax-Wendroff convection operator matrix.
+        """
+
         return self.d2_central() + (self.d2_central() * self.dt)
 
     def forcing_term(self):
+        """
+        Compute the forcing term matrix.
+
+        Returns
+        -------
+        np.ndarray
+            The forcing term matrix.
+        """
+
         x_values = np.linspace(*self.x_range, self.n_steps)
         t_values = np.arange(0, (self.dt * self.ts) + self.dt, self.dt)
 
@@ -191,13 +306,7 @@ class OneDimensionalPDESolver:
     def solve(self):
         x_range, dx, dt, time_steps, _ = self.fdm_p
 
-        p = self.lhs()
-        p[0][0] = 1
-        p[0][1:] = [0] * (len(p[0]) - 1)
-        p[-1][0:-1] = [0] * (len(p[0]) - 1)
-        p[-1][-1] = 1
-
-        lhs = np.linalg.inv(p)
+        lhs = np.linalg.inv(self.lhs())
         solution: list = [self.rhs()]
 
         print(f"LHS matrix size = {lhs.shape}")
@@ -207,10 +316,13 @@ class OneDimensionalPDESolver:
 
         for i in range(0, int(time_steps)):
             forcing_term = self.fdm[-1][:, i:i + 1]
-            enforce_boundary_condition(solution[i], self.bc)
-            solution.append(lhs @ (solution[i] + forcing_term))
+            b_matrix = null_matrix(self.n_steps, 1)
+            b_matrix[0] = self.bc[0]
+            b_matrix[-1] = self.bc[1]
+            # enforce_boundary_condition(solution[i], self.bc)
+            solution.append(lhs @ (solution[i] + forcing_term + b_matrix))
 
-        enforce_boundary_condition(solution[-1], self.bc)
+        # enforce_boundary_condition(solution[-1], self.bc)
 
         return np.array([i.transpose()[0] for i in solution])
 
@@ -251,13 +363,6 @@ def initial_condition_matrix(n_steps: int,
         return np.array([initial_condition(values)]).transpose()
 
     raise ValueError("Invalid initial_condition type")
-
-
-def boundary_condition_matrix(n_steps: int, boundary_conditions):
-    null_ = null_matrix(n_steps, 1)
-    null_[[0, -1]] = boundary_conditions
-
-    return null_
 
 
 def enforce_boundary_condition(matrix: NDArray,
@@ -329,8 +434,6 @@ def bi_diagonal_matrix(n_steps, wrap_boundaries: bool = False, diff_type: str = 
         A bi-diagonal matrix representing the specified difference scheme and boundary conditions.
     """
 
-    # n_steps += 1
-
     elements = elements if elements else [1, -1]
 
     main_diagonal = np.full(n_steps, elements[1])
@@ -352,13 +455,12 @@ def bi_diagonal_matrix(n_steps, wrap_boundaries: bool = False, diff_type: str = 
 
 
 def tri_diagonal_matrix(n_steps: int, wrap_boundaries: bool = False, elements: OptList = None):
-    # n_steps += 1
     elements = elements if elements else [1, -2, 1]
-    diag_main = np.full(n_steps, elements[1])
-    diag_upper = np.full(n_steps - 1, elements[0])
-    diag_lower = np.full(n_steps - 1, elements[2])
+    diagonal_main = np.full(n_steps, elements[1])
+    diagonal_upper = np.full(n_steps - 1, elements[0])
+    diagonal_lower = np.full(n_steps - 1, elements[2])
 
-    tri_diagonal_ = np.diag(diag_main) + np.diag(diag_upper, k=1) + np.diag(diag_lower, k=-1)
+    tri_diagonal_ = np.diag(diagonal_main) + np.diag(diagonal_upper, k=1) + np.diag(diagonal_lower, k=-1)
 
     if wrap_boundaries:
         tri_diagonal_[0, -1] = elements[-1]
