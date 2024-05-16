@@ -317,6 +317,33 @@ class OneDimensionalPDESolver:
 
         return np.array([i.transpose()[0] for i in solution])
 
+    def solve_cn(self):
+        x_range, dx, dt, time_steps, _ = self.fdm_p
+
+        p = self.lhs()
+        p[0][0] = 1
+        p[0][1:] = [0] * (len(p[0]) - 1)
+        p[-1][0:-1] = [0] * (len(p[0]) - 1)
+        p[-1][-1] = 1
+
+        lhs = np.linalg.inv(p)
+
+        solution: list = [self.rhs()]
+
+        print(f"LHS matrix size = {lhs.shape}")
+        print(f"RHS matrix size = {solution[0].shape}")
+        print(f"Number of time-iterations = {time_steps}")
+        print(f"dt = {dt} * {time_steps} -> {(time_steps * dt) - x_range[0]}s")
+
+        for i in range(0, int(time_steps)):
+            forcing_term = self.fdm[-1][:, i:i + 1]
+            # enforce_boundary_condition(solution[i], self.bc)
+            solution.append(lhs @ (solution[i] + forcing_term))
+
+        # enforce_boundary_condition(solution[-1], self.bc)
+
+        return np.array([i.transpose()[0] for i in solution])
+
 
 def initial_condition_matrix(n_steps: int,
                              initial_condition: IFloatOrFList or Func,
