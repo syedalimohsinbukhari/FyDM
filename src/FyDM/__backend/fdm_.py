@@ -1,7 +1,7 @@
 """Created on Feb 19 23:52:28 2024"""
 
 __all__ = ['OneDimensionalFDM', 'OneDimensionalPDESolver', 'bi_diagonal_matrix', 'enforce_boundary_condition',
-           'initial_condition_matrix', 'tri_diagonal_matrix', 'DirichletBCs', 'identity_matrix']
+           'initial_condition_matrix', 'tri_diagonal_matrix', 'identity_matrix']
 
 from math import floor
 from typing import Callable
@@ -9,17 +9,8 @@ from typing import Callable
 import numpy as np
 from numpy.typing import NDArray
 
+from .boundary_conditions import DirichletBCs
 from .. import FList, Func, IFloat, IFloatOrFList, N_DECIMAL, OptIFloat, OptList, TOLERANCE
-
-
-class DirichletBCs:
-
-    def __init__(self, alpha: IFloat = 0, beta: IFloat = 0):
-        self.alpha = alpha
-        self.beta = beta
-
-    def bcs(self):
-        return [self.alpha, self.beta]
 
 
 class OneDimensionalFDM:
@@ -455,6 +446,25 @@ def bi_diagonal_matrix(n_steps, wrap_boundaries: bool = False, diff_type: str = 
 
 
 def tri_diagonal_matrix(n_steps: int, wrap_boundaries: bool = False, elements: OptList = None):
+    """
+    Generate a tri-diagonal matrix.
+
+    Parameters:
+    -----------
+    n_steps:
+        Number of steps in the matrix.
+    wrap_boundaries:
+        Whether to wrap boundaries.
+    elements:
+        List containing the elements of the tri-diagonal matrix in the order
+         [upper_diagonal, main_diagonal, lower_diagonal, wrap_element]. Defaults to [1, -2, 1].
+
+    Returns:
+    --------
+    np.ndarray
+        Tri-diagonal matrix.
+    """
+
     elements = elements if elements else [1, -2, 1]
     diagonal_main = np.full(n_steps, elements[1])
     diagonal_upper = np.full(n_steps - 1, elements[0])
