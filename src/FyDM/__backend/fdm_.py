@@ -13,6 +13,43 @@ from .boundary_conditions import DirichletBCs
 from .. import FList, Func, IFloat, IFloatOrFList, N_DECIMAL, OptIFloat, OptList, TOLERANCE
 
 
+class Difference:
+    def __init__(self, delta_x, delta_t):
+        self.dx = delta_x
+        self.dt = delta_t
+
+        self.dt_dx = self.dt / self.dx
+
+    def _dt_dx(self):
+        return self.dt / self.dx
+
+    def fwd(self):
+        return self._dt_dx()
+
+    def bkw(self):
+        return self._dt_dx()
+
+    def cnt(self):
+        return 0.5 * self._dt_dx()
+
+    def cnt2(self):
+        return self.dx**-1 * self._dt_dx()
+
+    def lw(self):
+        return [self._dt_dx(), self._dt_dx()**2]
+
+    def cn(self):
+        return 0.5 * self.cnt2()
+
+    def factors(self, factor_type):
+        return {'fwd': self.fwd(),
+                'bkw': self.bkw(),
+                'cnt': self.cnt(),
+                'cnt2': self.cnt2(),
+                'lw': self.lw(),
+                'cn': self.cn()}[factor_type]
+
+
 class OneDimensionalFDM:
     """A class for performing finite difference method computations on a 1D grid.
 
@@ -79,33 +116,36 @@ class OneDimensionalFDM:
                   f'{np.round(dx2, N_DECIMAL)}')
             self.dx = dx2
 
-    def _factors(self, diff_type):
-        """
-        Calculate the coefficients for different difference schemes.
+    # def _factors(self, diff_type):
+    #     """
+    #     Calculate the coefficients for different difference schemes.
+    #
+    #     Parameters
+    #     ----------
+    #     diff_type : str
+    #         Type of difference scheme ('fwd', 'bkw', 'cnt', 'cnt2', 'lw', 'cn').
+    #
+    #     Returns
+    #     -------
+    #     float or List[float]
+    #         Coefficient(s) for the specified difference scheme.
+    #     """
+    #
+    #     dx, dt = self.dx, self.dt
+    #
+    #     dt_dx = dt / dx
+    #
+    #     constants = {'fwd': dt_dx,
+    #                  'bkw': dt_dx,
+    #                  'cnt': 0.5 * dt_dx,
+    #                  'cnt2': dx**-1 * dt_dx,
+    #                  'lw': [dt_dx, dt_dx**2],
+    #                  'cn': 0.5 * dx**-1 * dt_dx}
+    #
+    #     return constants[diff_type]
 
-        Parameters
-        ----------
-        diff_type : str
-            Type of difference scheme ('fwd', 'bkw', 'cnt', 'cnt2', 'lw', 'cn').
-
-        Returns
-        -------
-        float or List[float]
-            Coefficient(s) for the specified difference scheme.
-        """
-
-        dx, dt = self.dx, self.dt
-
-        dt_dx = dt / dx
-
-        constants = {'fwd': dt_dx,
-                     'bkw': dt_dx,
-                     'cnt': 0.5 * dt_dx,
-                     'cnt2': dx**-1 * dt_dx,
-                     'lw': [dt_dx, dt_dx**2],
-                     'cn': 0.5 * dx**-1 * dt_dx}
-
-        return constants[diff_type]
+    def _factors(self, factor_type):
+        return Difference(self.dx, self.dt).factors(factor_type)
 
     @property
     def pde_properties(self):
@@ -307,24 +347,22 @@ class OneDimensionalPDESolver:
 
         for i in range(0, int(time_steps)):
             forcing_term = self.fdm[-1][:, i:i + 1]
-            b_matrix = null_matrix(self.n_steps, 1)
-            b_matrix[0] = self.bc[0]
-            b_matrix[-1] = self.bc[1]
-            # enforce_boundary_condition(solution[i], self.bc)
-            solution.append(lhs @ (solution[i] + forcing_term + b_matrix))
+            enforce_boundary_condition(solution[i], self.bc)
+            solution.append(lhs @ (solution[i] + forcing_term))
 
-        # enforce_boundary_condition(solution[-1], self.bc)
+        enforce_boundary_condition(solution[-1], self.bc)
 
         return np.array([i.transpose()[0] for i in solution])
 
-    def solve_cn(self):
+    def solve_cn(self, h_matrix):
         x_range, dx, dt, time_steps, _ = self.fdm_p
 
         p = self.lhs()
-        p[0][0] = 1
-        p[0][1:] = [0] * (len(p[0]) - 1)
-        p[-1][0:-1] = [0] * (len(p[0]) - 1)
-        p[-1][-1] = 1
+
+        for row in [0, 1]:
+            _factor = Difference(dx, dt).factors('cn')
+            p[0][row] = _factor
+            p[-1][-(row + 1)] = _factor
 
         lhs = np.linalg.inv(p)
 
@@ -337,17 +375,16 @@ class OneDimensionalPDESolver:
 
         for i in range(0, int(time_steps)):
             forcing_term = self.fdm[-1][:, i:i + 1]
-            # enforce_boundary_condition(solution[i], self.bc)
-            solution.append(lhs @ (solution[i] + forcing_term))
+            enforce_boundary_condition(solution[i], self.bc)
+            cn_step = h_matrix @ (solution[i] + forcing_term)
+            solution.append(lhs @ cn_step)
 
-        # enforce_boundary_condition(solution[-1], self.bc)
+        enforce_boundary_condition(solution[-1], self.bc)
 
         return np.array([i.transpose()[0] for i in solution])
 
 
-def initial_condition_matrix(n_steps: int,
-                             initial_condition: IFloatOrFList or Func,
-                             values=None):
+def initial_condition_matrix(n_steps: int, initial_condition: IFloatOrFList or Func, values=None):
     """
     Generate a matrix representing initial conditions for a given number of time steps.
 
@@ -383,8 +420,7 @@ def initial_condition_matrix(n_steps: int,
     raise ValueError("Invalid initial_condition type")
 
 
-def enforce_boundary_condition(matrix: NDArray,
-                               boundary_conditions: FList) -> NDArray:
+def enforce_boundary_condition(matrix: NDArray, boundary_conditions: FList) -> NDArray:
     """
     Enforce boundary conditions on a matrix.
 
@@ -408,8 +444,7 @@ def enforce_boundary_condition(matrix: NDArray,
     return matrix
 
 
-def null_matrix(n_rows: int,
-                n_cols: OptIFloat = None) -> NDArray:
+def null_matrix(n_rows: int, n_cols: OptIFloat = None) -> NDArray:
     """
     Returns a zero matrix for given `n_rows` and `n_cols`.
 
