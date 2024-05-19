@@ -159,4 +159,4 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 .idea/
 #/src/FyDM/examples/
-#/src/FyDM/test.py
+/src/main.py

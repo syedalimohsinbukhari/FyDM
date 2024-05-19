@@ -116,34 +116,6 @@ class OneDimensionalFDM:
                   f'{np.round(dx2, N_DECIMAL)}')
             self.dx = dx2
 
-    # def _factors(self, diff_type):
-    #     """
-    #     Calculate the coefficients for different difference schemes.
-    #
-    #     Parameters
-    #     ----------
-    #     diff_type : str
-    #         Type of difference scheme ('fwd', 'bkw', 'cnt', 'cnt2', 'lw', 'cn').
-    #
-    #     Returns
-    #     -------
-    #     float or List[float]
-    #         Coefficient(s) for the specified difference scheme.
-    #     """
-    #
-    #     dx, dt = self.dx, self.dt
-    #
-    #     dt_dx = dt / dx
-    #
-    #     constants = {'fwd': dt_dx,
-    #                  'bkw': dt_dx,
-    #                  'cnt': 0.5 * dt_dx,
-    #                  'cnt2': dx**-1 * dt_dx,
-    #                  'lw': [dt_dx, dt_dx**2],
-    #                  'cn': 0.5 * dx**-1 * dt_dx}
-    #
-    #     return constants[diff_type]
-
     def _factors(self, factor_type):
         return Difference(self.dx, self.dt).factors(factor_type)
 
@@ -338,12 +310,7 @@ class OneDimensionalPDESolver:
         x_range, dx, dt, time_steps, _ = self.fdm_p
 
         lhs = np.linalg.inv(self.lhs())
-        solution: list = [self.rhs()]
-
-        print(f"LHS matrix size = {lhs.shape}")
-        print(f"RHS matrix size = {solution[0].shape}")
-        print(f"Number of time-iterations = {time_steps}")
-        print(f"dt = {dt} * {time_steps} -> {(time_steps * dt) - x_range[0]}s")
+        solution = self.__report(x_range, dt, time_steps, lhs)
 
         for i in range(0, int(time_steps)):
             forcing_term = self.fdm[-1][:, i:i + 1]
@@ -366,12 +333,7 @@ class OneDimensionalPDESolver:
 
         lhs = np.linalg.inv(p)
 
-        solution: list = [self.rhs()]
-
-        print(f"LHS matrix size = {lhs.shape}")
-        print(f"RHS matrix size = {solution[0].shape}")
-        print(f"Number of time-iterations = {time_steps}")
-        print(f"dt = {dt} * {time_steps} -> {(time_steps * dt) - x_range[0]}s")
+        solution = self.__report(x_range, dt, time_steps, lhs)
 
         for i in range(0, int(time_steps)):
             forcing_term = self.fdm[-1][:, i:i + 1]
@@ -382,6 +344,14 @@ class OneDimensionalPDESolver:
         enforce_boundary_condition(solution[-1], self.bc)
 
         return np.array([i.transpose()[0] for i in solution])
+
+    def __report(self, x_range, dt, time_steps, lhs):
+        solution: list = [self.rhs()]
+        print(f"LHS matrix size = {lhs.shape}")
+        print(f"RHS matrix size = {solution[0].shape}")
+        print(f"Number of time-iterations = {time_steps}")
+        print(f"dt = {dt} * {time_steps} -> {(time_steps * dt) - x_range[0]}s")
+        return solution
 
 
 def initial_condition_matrix(n_steps: int, initial_condition: IFloatOrFList or Func, values=None):
