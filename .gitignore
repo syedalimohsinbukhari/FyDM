@@ -160,3 +160,4 @@ cython_debug/
 .idea/
 #/src/FyDM/examples/
 /src/main.py
+/src/FyDM/__backend/crank_nicolson_short_backup.py
