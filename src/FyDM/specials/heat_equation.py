@@ -1,10 +1,13 @@
 """Created on Feb 23 09:06:48 2024"""
+
 from .. import FList, Func, IFloat, IFloatOrFList, OptIFloat
 from ..__backend.fdm_ import OneDimensionalFDM, OneDimensionalPDESolver
 
 
-# TODO: Add capability of handling forcing term
-# TODO: Add capability of solving HEq using explicit method
+# TODO:
+#       Add capability of handling forcing term
+#       Add capability of solving HEq using explicit method
+#       Non-homogeneous BCs don't work
 
 def heat_equation(x_range: FList,
                   delta_x: IFloat,
@@ -58,9 +61,9 @@ def heat_equation(x_range: FList,
 
     fdm_matrices = [pde_.d1_backward()]
 
-    if solution_method in ['euler backward', 'eb']:
+    if solution_method in ['euler_backward', 'eb']:
         fdm_matrices.extend([-diffusivity * pde_.d2_central()])
-    elif solution_method in ['lax wendroff', 'lw']:
+    elif solution_method in ['lax_wendroff', 'lw']:
         fdm_matrices.extend([-diffusivity * pde_.lax_wendroff_convection()])
 
     fdm_ = OneDimensionalPDESolver(pde_.pde_properties,
