@@ -13,7 +13,9 @@ from .boundary_conditions import DirichletBCs
 from .. import FList, Func, IFloat, IFloatOrFList, N_DECIMAL, OptIFloat, OptList, TOLERANCE
 
 
-class Difference:
+class NumericalFactors:
+    """Numerical factor class for various numerical schemes."""
+
     def __init__(self, delta_x, delta_t):
         self.dx = delta_x
         self.dt = delta_t
@@ -24,24 +26,31 @@ class Difference:
         return self.dt / self.dx
 
     def fwd(self):
+        """FWD difference factor."""
         return self._dt_dx()
 
     def bkw(self):
+        """BKW difference factor."""
         return self._dt_dx()
 
     def cnt(self):
+        """CNT difference factor."""
         return 0.5 * self._dt_dx()
 
     def cnt2(self):
+        """CNT difference factor for second order derivative."""
         return self.dx**-1 * self._dt_dx()
 
     def lw(self):
+        """Lax-Wendroff scheme difference factor."""
         return [self._dt_dx(), self._dt_dx()**2]
 
     def cn(self):
+        """Crank-Nicolson scheme difference factor."""
         return 0.5 * self.cnt2()
 
     def factors(self, factor_type):
+        """Wrapper function to get the scheme factors."""
         return {'fwd': self.fwd(),
                 'bkw': self.bkw(),
                 'cnt': self.cnt(),
@@ -117,7 +126,7 @@ class OneDimensionalFDM:
             self.dx = dx2
 
     def _factors(self, factor_type):
-        return Difference(self.dx, self.dt).factors(factor_type)
+        return NumericalFactors(self.dx, self.dt).factors(factor_type)
 
     @property
     def pde_properties(self):
@@ -253,6 +262,7 @@ class OneDimensionalFDM:
 
 
 def identity_matrix(n_steps: int):
+    """Function to create an identity matrix."""
     return np.eye(n_steps)
 
 
@@ -327,7 +337,7 @@ class OneDimensionalPDESolver:
         p = self.lhs()
 
         for row in [0, 1]:
-            _factor = Difference(dx, dt).factors('cn')
+            _factor = NumericalFactors(dx, dt).factors('cn')
             p[0][row] = _factor
             p[-1][-(row + 1)] = _factor
 
@@ -467,8 +477,10 @@ def bi_diagonal_matrix(n_steps, wrap_boundaries: bool = False, diff_type: str = 
         matrix = np.diag(main_diagonal) + np.diag(upper_diagonal, k=1)
     elif diff_type == 'fwd':
         matrix = np.diag(main_diagonal) + np.diag(lower_diagonal, k=-1)
-    else:
+    elif diff_type == 'cnt':
         matrix = np.diag(main_diagonal) + np.diag(upper_diagonal, k=1) + np.diag(lower_diagonal, k=-1)
+    else:
+        raise ValueError("The given difference type doesn't exist.")
 
     if wrap_boundaries:
         matrix[0, -1] = elements[0]
