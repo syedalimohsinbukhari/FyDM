@@ -159,5 +159,6 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 .idea/
 #/src/FyDM/examples/
-/src/main.py
-/src/FyDM/__backend/crank_nicolson_short_backup.py
+/**/main.py
+/**/*_backup.py
+
