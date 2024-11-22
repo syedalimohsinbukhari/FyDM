@@ -1,0 +1,13 @@
+name: fydm
+channels:
+    - defaults
+dependencies:
+    - python=3.9.*
+    - numpy==1.26.4
+    - scipy
+    - matplotlib
+    - setuptools
+    - pyyaml
+    - pip
+    - pip:
+      - umatrix
